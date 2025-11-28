@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
-from src.database.models import Contact
+from src.database.models import Contact, User
 from src.schemas import ContactModel
 from datetime import date
 from typing import List, cast
@@ -15,12 +15,13 @@ class ContactsRepository:
         self,
         skip: int,
         limit: int,
+        user: User,
         name: Optional[str] = None,
         last_name: Optional[str] = None,
         email: Optional[str] = None,
     ) -> list[Contact]:
 
-        stmt = select(Contact)
+        stmt = select(Contact).filter_by(user_id=user.id)
 
         conditions = []
         if name:
@@ -36,22 +37,25 @@ class ContactsRepository:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_contact_by_id(self, contact_id: int) -> Contact | None:
-        stmt = select(Contact).where(Contact.id == contact_id)
+    async def get_contact_by_id(self, contact_id: int, user: User) -> Contact | None:
+        stmt = (
+            select(Contact).filter_by(user_id=user.id).where(Contact.id == contact_id)
+        )
         result = await self.db.execute(stmt)
         return result.scalars().one_or_none()
 
-    async def create_contact(self, body: ContactModel) -> Contact:
+    async def create_contact(self, body: ContactModel, user: User) -> Contact:
         contact = Contact(**body.model_dump())
+        contact.user_id = user.id
         self.db.add(contact)
         await self.db.commit()
         await self.db.refresh(contact)
         return contact
 
     async def update_contact(
-        self, contact_id: int, body: ContactModel
+        self, contact_id: int, body: ContactModel, user: User
     ) -> Contact | None:
-        contact = await self.get_contact_by_id(contact_id)
+        contact = await self.get_contact_by_id(contact_id, user)
         if contact:
             for key, value in body.model_dump().items():
                 setattr(contact, key, value)
@@ -60,15 +64,19 @@ class ContactsRepository:
             await self.db.refresh(contact)
         return contact
 
-    async def remove_contact(self, contact_id: int) -> Contact | None:
-        contact = await self.get_contact_by_id(contact_id)
+    async def remove_contact(self, contact_id: int, user: User) -> Contact | None:
+        contact = await self.get_contact_by_id(contact_id, user)
         if contact:
             await self.db.delete(contact)
             await self.db.commit()
         return contact
 
-    async def get_upcoming_birthdays(self, days: int = 7) -> List[Contact]:
-        stmt = select(Contact).where(Contact.birth_date.is_not(None))
+    async def get_upcoming_birthdays(self, user: User, days: int = 7) -> List[Contact]:
+        stmt = (
+            select(Contact)
+            .filter_by(user_id=user.id)
+            .where(Contact.birth_date.is_not(None))
+        )
         result = await self.db.execute(stmt)
         contacts = list(result.scalars().all())
 

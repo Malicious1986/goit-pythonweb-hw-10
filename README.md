@@ -1,118 +1,120 @@
-# goit-pythonweb-hw-08
+# goit-pythonweb-hw-10
 
 Simple FastAPI project (contacts API).
 
 ## Requirements
 
 - Python 3.12+
-- Docker (for running PostgreSQL locally)
+- Docker & Docker Compose (for running the API + Postgres together)
 
-Dependencies are defined in `pyproject.toml` (Poetry is the recommended installer).
+Dependencies are defined in `pyproject.toml` and the project uses Poetry for dependency management.
 
-## Install
+## Quick start (recommended using Docker Compose)
 
-Recommended (Poetry):
+The repository includes a `docker-compose.yml` that runs the `api` service and a `db` (Postgres) service. Compose automatically loads variables from a `.env` file if present.
 
-```zsh
-# install Poetry if you don't have it
-curl -sSL https://install.python-poetry.org | python3 -
-
-# install dependencies
-poetry install
-```
-
-Or using a virtual environment and pip:
-
-```zsh
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install "fastapi[standard]" uvicorn[standard] sqlalchemy asyncpg alembic python-dotenv
-```
-
-## Configuration (.env)
-
-The application reads the DB URL from the `DB_URL` environment variable. You can provide it via a `.env` file at the project root (the project uses `python-dotenv` when available). Example `.env`:
+1. (Optional) Create a `.env` file in the project root with runtime values. Example (use your own secrets — do NOT commit them):
 
 ```env
-DB_URL=postgresql+asyncpg://postgres:567234@localhost:5432/contacts
+# Postgres
+POSTGRES_DB=contacts
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=<your_postgres_password>
+# or full DB URL (recommended for runtime):
+DB_URL=postgresql+asyncpg://<user>:<password>@db:5432/contacts
+
+# JWT
+JWT_SECRET=<your_jwt_secret_key>
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_SECONDS=3600
+
+# Mail (example placeholders)
+MAIL_USERNAME=<your_smtp_username>
+MAIL_PASSWORD=<your_smtp_password>
+MAIL_FROM=<from_email_address>
+MAIL_PORT=465
+MAIL_SERVER=<smtp_server>
+MAIL_FROM_NAME="Rest API Service"
+MAIL_STARTTLS=false
+MAIL_SSL_TLS=true
+USE_CREDENTIALS=true
+VALIDATE_CERTS=true
+
+# Frontend origins
+ORIGINS=http://localhost:3000
+
+# Third-party services
+CLOUDINARY_NAME=<cloudinary_name>
+CLOUDINARY_API_KEY=<cloudinary_api_key>
+CLOUDINARY_API_SECRET=<cloudinary_api_secret>
 ```
 
-If `DB_URL` is not provided, the app falls back to a reasonable default defined in `src/conf/config.py`.
+2. Build and start the stack:
 
-## Start Postgres (Docker)
-
-Start a local PostgreSQL container:
-
-```zsh
-docker run --name db-postgres -p 5432:5432 -e POSTGRES_PASSWORD=567234 -d postgres
+```bash
+docker compose up --build
 ```
 
-This will:
+This exposes the API at `http://0.0.0.0:8000` (mapped from the container) and Postgres on `5432`.
 
-- run a Postgres container named `db-postgres`
-- expose port `5432` so the app can reach `localhost:5432`
-- set the `postgres` user's password to `567234`
+3. Run database migrations (after DB is healthy):
 
-If you need the `contacts` database, create it with:
-
-```zsh
-docker exec -it db-postgres psql -U postgres
-# inside psql:
-CREATE DATABASE contacts;
-\q
+```bash
+# from the project root — runs alembic inside the running api container
+docker compose exec api alembic upgrade head
 ```
 
-## Run database migrations (Alembic)
+## Build with build-time args (bake envs into image)
 
-Once the DB is running and `DB_URL` points to it, run migrations to create the schema:
+If you want to bake environment values into the image (not recommended for secrets), the `Dockerfile` declares build-time `ARG`s and sets corresponding `ENV` values. You can pass all variables as `--build-arg`.
 
-```zsh
-# generate a revision (if you have model changes and want autogenerate)
-alembic revision --autogenerate -m 'Init'
+Example (zsh — disable history expansion first if any values contain `!`):
 
-# apply migrations
-alembic upgrade head
+```bash
+set +H
+docker build \
+	--no-cache \
+	--build-arg POSTGRES_DB=contacts \
+	--build-arg POSTGRES_USER=postgres \
+	--build-arg POSTGRES_PASSWORD='<your_postgres_password>' \
+	--build-arg DB_URL='postgresql+asyncpg://<user>:<password>@localhost:5432/contacts' \
+	--build-arg JWT_SECRET='<your_jwt_secret_key>' \
+	--build-arg JWT_ALGORITHM='HS256' \
+	--build-arg JWT_EXPIRATION_SECONDS='3600' \
+	--build-arg MAIL_USERNAME='<your_smtp_username>' \
+	--build-arg MAIL_PASSWORD='<your_smtp_password>' \
+	--build-arg MAIL_FROM='<from_email@example.com>' \
+	--build-arg MAIL_PORT='465' \
+	--build-arg MAIL_SERVER='<smtp_server>' \
+	--build-arg MAIL_FROM_NAME='Rest API Service' \
+	--build-arg MAIL_STARTTLS='false' \
+	--build-arg MAIL_SSL_TLS='true' \
+	--build-arg USE_CREDENTIALS='true' \
+	--build-arg VALIDATE_CERTS='true' \
+	--build-arg ORIGINS='http://localhost:3000' \
+	--build-arg CLOUDINARY_NAME='<cloudinary_name>' \
+	--build-arg CLOUDINARY_API_KEY='<cloudinary_api_key>' \
+	--build-arg CLOUDINARY_API_SECRET='<cloudinary_api_secret>' \
+	-t goit-pythonweb-hw-10-api:buildarg .
 ```
 
-Notes:
+Then run the container (or use `docker compose` to run the stack):
 
-- Review autogenerated migration scripts in `migrations/versions/` before applying them.
-- Ensure `DB_URL` matches your running database.
-
-## Run the app (development)
-
-Using Poetry (recommended):
-
-```zsh
-poetry run python main.py
+```bash
+docker compose up -d
 ```
 
-Or using Uvicorn directly:
+## Checking logs & troubleshooting
 
-```zsh
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
-```
+- Tail logs for the `api` service:
+  ```bash
+  docker compose logs -f api
+  ```
+- Tail recent logs (non-interactive):
+  ```bash
+  docker compose logs --no-color --tail 200 api
+  ```
 
-There is also a convenience `fastapi dev` command if you have the FastAPI CLI installed in your environment.
+## Running locally without Docker
 
-## API docs
-
-When the app is running (default host `127.0.0.1:8000`):
-
-- Swagger UI: http://127.0.0.1:8000/docs
-- ReDoc: http://127.0.0.1:8000/redoc
-
-API routes are mounted under the `/api` prefix, so endpoints will appear with paths starting with `/api`.
-
-## Quick smoke test
-
-1. Start the Postgres container.
-2. Create the `contacts` DB (if necessary) and run migrations.
-3. Start the app.
-4. Open `http://127.0.0.1:8000/docs` in a browser and exercise an endpoint.
-
-## Notes
-
-- The project is configured with `pyproject.toml` and Poetry; if you prefer pip, consider exporting `requirements.txt` with `poetry export` for reproducible installs.
-- Alembic migrations are located in the `migrations/` folder.
+You can still run locally with Poetry or a venv — ensure `.env` values are set in your environment or a `.env` file and run with Uvicorn (or `fastapi dev`).
